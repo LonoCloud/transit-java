@@ -61,6 +61,9 @@ public abstract class AbstractEmitter implements Emitter//, WriteHandler
         if(h == null) {
             h = checkBaseInterfaces(c);
         }
+        if(h == null) {
+            h = handlers.get(Object.class);
+        }
 
         return (WriteHandler<Object, Object>) h;
     }

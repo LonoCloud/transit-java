@@ -59,7 +59,7 @@ public class WriterFactory {
         handlers.put(LinkImpl.class, new WriteHandlers.LinkWriteHandler());
         handlers.put(Quote.class, new WriteHandlers.QuoteAbstractEmitter());
         handlers.put(TaggedValue.class, new WriteHandlers.TaggedValueWriteHandler());
-        handlers.put(Object.class, new WriteHandlers.ObjectWriteHandler());
+        //handlers.put(Object.class, new WriteHandlers.ObjectWriteHandler());
 
         return handlers;
     }
