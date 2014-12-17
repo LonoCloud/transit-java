@@ -2,12 +2,12 @@
 
 set -e
 
-bucket=datomic-maven
+bucket=lonocloud-maven
 
 ./build/package
 
 echo "Deploying"
 
-aws s3 cp --recursive ./target/package s3://${bucket}/releases
+aws s3 cp --recursive ./target/package s3://${bucket}/repo/releases
 
 echo "Deploy done!"
