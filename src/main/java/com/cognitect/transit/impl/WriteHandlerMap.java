@@ -134,6 +134,7 @@ public class WriteHandlerMap implements TagProvider, Map<Class, WriteHandler<?, 
         if(h == null) h = handlers.get(c);
         if(h == null) h = checkBaseClasses(c);
         if(h == null) h = checkBaseInterfaces(c);
+        if(h == null) h = handlers.get(Object.class);
 
         return (WriteHandler<Object, Object>) h;
     }
