@@ -52,6 +52,24 @@ public class WriteHandlers {
         }
     }
 
+    public static class KeywordWriteHandler extends AbstractWriteHandler<Keyword, Object> {
+
+        @Override
+        public String tag(Keyword ignored) {
+            return ":";
+        }
+
+        @Override
+        public Object rep(Keyword o) {
+            return stringRep(o);
+        }
+
+        @Override
+        public String stringRep(Keyword o) {
+            return o.toString().substring(1);
+        }
+    }
+
     public static class ListWriteHandler extends AbstractWriteHandler<List<Object>, Object> {
 
         @Override
@@ -72,13 +90,13 @@ public class WriteHandlers {
     }
 
     public static class MapWriteHandler extends AbstractWriteHandler<Map<Object, Object>, Object>
-            implements AbstractEmitterAware {
+            implements TagProviderAware {
 
-        private AbstractEmitter abstractEmitter;
+        private TagProvider tagProvider;
 
         @Override
-        public void setEmitter(AbstractEmitter abstractEmitter) {
-            this.abstractEmitter = abstractEmitter;
+        public void setTagProvider(TagProvider tagProvider) {
+            this.tagProvider = tagProvider;
         }
 
         private boolean stringableKeys(Map<Object, Object> m) {
@@ -86,7 +104,7 @@ public class WriteHandlers {
             Iterator<Object> i = m.keySet().iterator();
             while(i.hasNext()) {
                 Object key = i.next();
-                String tag = abstractEmitter.getTag(key);
+                String tag = tagProvider.getTag(key);
 
                 if(tag != null && tag.length() > 1)
                     return false;

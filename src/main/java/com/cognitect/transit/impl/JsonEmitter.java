@@ -3,7 +3,6 @@
 
 package com.cognitect.transit.impl;
 
-import com.cognitect.transit.WriteHandler;
 import com.fasterxml.jackson.core.JsonGenerator;
 import org.apache.commons.codec.binary.Base64;
 
@@ -13,13 +12,13 @@ import java.util.Map;
 
 public class JsonEmitter extends AbstractEmitter {
 
-    private final static BigInteger JSON_INT_MAX = new BigInteger(String.valueOf((long) Math.pow(2, 53)));
+    private final static BigInteger JSON_INT_MAX = new BigInteger(String.valueOf((long) Math.pow(2, 53) - 1));
     private final static BigInteger JSON_INT_MIN = new BigInteger("-" + JSON_INT_MAX.toString());
 
     protected final JsonGenerator gen;
 
-    public JsonEmitter(JsonGenerator gen, Map<Class, WriteHandler<?,?>> handlers) {
-        super(handlers);
+    public JsonEmitter(JsonGenerator gen, WriteHandlerMap writeHandlerMap) {
+        super(writeHandlerMap);
         this.gen = gen;
     }
 

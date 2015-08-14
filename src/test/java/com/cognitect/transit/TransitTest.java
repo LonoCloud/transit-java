@@ -15,6 +15,8 @@
 package com.cognitect.transit;
 
 import com.cognitect.transit.impl.*;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
@@ -45,6 +47,14 @@ public class TransitTest extends TestCase {
         } catch (Throwable e) { throw new RuntimeException(e); }
     }
 
+    public Reader reader(String s, Map<String, ReadHandler<?, ?>> customHandlers) {
+        try {
+            InputStream in = new ByteArrayInputStream(s.getBytes());
+            return TransitFactory.reader(TransitFactory.Format.JSON, in, customHandlers);
+        } catch (Throwable e) { throw new RuntimeException(e); }
+
+    }
+
     public void testReadString() throws IOException {
 
         assertEquals("foo", reader("\"foo\"").read());
@@ -72,12 +82,12 @@ public class TransitTest extends TestCase {
     public void testReadKeyword() throws IOException {
 
         Object v = reader("\"~:foo\"").read();
-        assertEquals("foo", v.toString());
+        assertEquals(":foo", v.toString());
 
         List v2 = (List)reader("[\"~:foo\",\"^"+(char)WriteCache.BASE_CHAR_IDX+"\",\"^"+(char)WriteCache.BASE_CHAR_IDX+"\"]").read();
-        assertEquals("foo", v2.get(0).toString());
-        assertEquals("foo", v2.get(1).toString());
-        assertEquals("foo", v2.get(2).toString());
+        assertEquals(":foo", v2.get(0).toString());
+        assertEquals(":foo", v2.get(1).toString());
+        assertEquals(":foo", v2.get(2).toString());
     }
 
     public void testReadInteger() throws IOException {
@@ -214,7 +224,7 @@ public class TransitTest extends TestCase {
 
         assertEquals(3, l.size());
 
-        assertEquals("foo", l.get(0).toString());
+        assertEquals(":foo", l.get(0).toString());
         assertEquals(d.getTime(), ((Date)l.get(1)).getTime());
         assertTrue((Boolean) l.get(2));
     }
@@ -237,7 +247,7 @@ public class TransitTest extends TestCase {
 
         assertEquals(2, m.size());
 
-        assertEquals("foo", m.get("a").toString());
+        assertEquals(":foo", m.get("a").toString());
         assertEquals(uuid, m.get("b").toString());
     }
 
@@ -334,15 +344,19 @@ public class TransitTest extends TestCase {
 
     // Writing
 
-    public String write(Object o, TransitFactory.Format format) {
+    public String write(Object o, TransitFactory.Format format, Map<Class, WriteHandler<?, ?>> customHandlers) {
         try {
             OutputStream out = new ByteArrayOutputStream();
-            Writer w = TransitFactory.writer(format, out, null);
+            Writer w = TransitFactory.writer(format, out, customHandlers);
             w.write(o);
             return out.toString();
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public String write(Object o, TransitFactory.Format format) {
+        return write(o, format, null);
     }
 
     public String writeJsonVerbose(Object o) {
@@ -441,6 +455,15 @@ public class TransitTest extends TestCase {
         assertEquals(scalarVerbose("42"), writeJsonVerbose(new Long("42")));
         assertEquals(scalarVerbose("\"~n42\""), writeJsonVerbose(new BigInteger("42")));
         assertEquals(scalarVerbose("\"~n4256768765123454321897654321234567\""), writeJsonVerbose(new BigInteger("4256768765123454321897654321234567")));
+    }
+
+    public void testWriteIntegerAtJSONBoundaries() throws Exception {
+
+        assertEquals(scalarVerbose("9007199254740991"),       writeJsonVerbose((long) Math.pow(2, 53) - 1));
+        assertEquals(scalarVerbose("\"~i9007199254740992\""), writeJsonVerbose((long) Math.pow(2, 53)));
+
+        assertEquals(scalarVerbose("-9007199254740991"),       writeJsonVerbose(1 - (long) Math.pow(2, 53)));
+        assertEquals(scalarVerbose("\"~i-9007199254740992\""), writeJsonVerbose(0 - (long) Math.pow(2, 53)));
     }
 
     public void testWriteFloatDouble() throws Exception {
@@ -718,10 +741,10 @@ public class TransitTest extends TestCase {
 
         Collections.sort(l);
 
-        assertEquals("abc", l.get(0).toString());
-        assertEquals("bbb", l.get(1).toString());
-        assertEquals("ccc", l.get(2).toString());
-        assertEquals("dab", l.get(3).toString());
+        assertEquals(":abc", l.get(0).toString());
+        assertEquals(":bbb", l.get(1).toString());
+        assertEquals(":ccc", l.get(2).toString());
+        assertEquals(":dab", l.get(3).toString());
     }
 
     public void testSymbolEquality() {
@@ -799,5 +822,132 @@ public class TransitTest extends TestCase {
         Writer<Object> w = TransitFactory.writer(TransitFactory.Format.JSON, null);
         Writer<Map<String, String>> w2 = TransitFactory.writer(TransitFactory.Format.JSON, null);
         Writer w3 = TransitFactory.writer(TransitFactory.Format.JSON, null);
+    }
+
+    public void testPrettyPrint() {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            JsonFactory jf = new JsonFactory();
+            JsonGenerator jg = jf.createGenerator(bytes);
+            jg.writeString(":db/ident");
+            jg.close();
+            String s = new String(bytes.toByteArray());
+            System.out.println(s);
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
+
+    public static class TestListWriteHandler extends AbstractWriteHandler<List<Object>, Object> {
+
+        @Override
+        public String tag(List<Object> o) {
+            if (o instanceof RandomAccess) // ArrayList, Stack, Vector
+                return "array";
+            else
+                return "list";
+        }
+
+        @Override
+        public Object rep(List<Object> o) {
+            if (o instanceof LinkedList)
+                return TransitFactory.taggedValue("array", o);
+            else
+                return o;
+        }
+    }
+
+    public void testWriteHandlerCache() {
+        Map<Class, WriteHandler<?, ?>> handlers = new HashMap<Class, WriteHandler<?, ?>>();
+        handlers.put(java.util.List.class, new TestListWriteHandler());
+
+        for (int i = 0; i < 2; i++) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            Writer<Object> w = TransitFactory.writer(TransitFactory.Format.JSON, out, handlers);
+        }
+    }
+
+    public void testReadHandlerMapWithNoCustomHandlers() {
+        assertEquals("foo", reader("\"foo\"", TransitFactory.readHandlerMap(null)).read());
+    }
+
+    public void testReadHandlerMapWithCustomHandler() {
+        ReadHandler customHandler = new ReadHandler() {
+            @Override
+            public Object fromRep(Object o) {
+                return o.toString() + " (processed)";
+            }
+        };
+        Map<String, ReadHandler<?, ?>> customHandlers = new HashMap<String, ReadHandler<?, ?>>();
+        customHandlers.put("thing", customHandler);
+        String s = reader("{\"~#thing\":\"stored value\"}", TransitFactory.readHandlerMap(customHandlers)).read();
+        assertEquals("stored value (processed)", s);
+    }
+
+    private WriteHandler customWriteHandler() {
+        return new WriteHandler() {
+            @Override
+            public String tag(Object o) {
+                return "s";
+            }
+
+            @Override
+            public Object rep(Object o) {
+                return o + " (custom)";
+            }
+
+            @Override
+            public String stringRep(Object o) {
+                return null;
+            }
+
+            @Override
+            public WriteHandler getVerboseHandler() {
+                return new WriteHandler() {
+                    @Override
+                    public String tag(Object o) {
+                        return "s";
+                    }
+
+                    @Override
+                    public Object rep(Object o) {
+                        return o + " (verbose custom)";
+                    }
+
+                    @Override
+                    public String stringRep(Object o) {
+                        return null;
+                    }
+
+                    @Override
+                    public WriteHandler getVerboseHandler() {
+                        return null;
+                    }
+                };
+            }
+        };
+    }
+
+    public void testWriteHandlerMapWithNoCustomHandlers() {
+        assertEquals(scalar("37"), write(37, TransitFactory.Format.JSON, TransitFactory.writeHandlerMap(null)));
+    }
+
+    public void testWriteHandlerMapWithCustomHandler() {
+        WriteHandler customHandler = customWriteHandler();
+
+        Map<Class, WriteHandler<?, ?>> customHandlers = new HashMap<Class, WriteHandler<?, ?>>();
+        customHandlers.put(String.class, customHandler);
+        String result = write("37", TransitFactory.Format.JSON, TransitFactory.writeHandlerMap(customHandlers));
+        assertEquals(scalar("\"37 (custom)\""), result);
+    }
+
+    public void testWriteHandlerMapWithCustomHandlerVerbose() {
+        WriteHandler customHandler = customWriteHandler();
+
+        Map<Class, WriteHandler<?, ?>> customHandlers = new HashMap<Class, WriteHandler<?, ?>>();
+        customHandlers.put(String.class, customHandler);
+        WriteHandlerMap writeHandlerMap = new WriteHandlerMap(customHandlers);
+        String result = write("37", TransitFactory.Format.JSON_VERBOSE, writeHandlerMap);
+        assertEquals(scalarVerbose("\"37 (verbose custom)\""), result);
     }
 }

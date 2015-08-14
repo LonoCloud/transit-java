@@ -17,13 +17,16 @@ import java.util.*;
 
 public class WriterFactory {
 
+    private static Map<Map<Class, WriteHandler<?,?>>, WriteHandlerMap> newHandlerCache = new Cache<Map<Class, WriteHandler<?,?>>, WriteHandlerMap>();
+    private static Map<Map<Class, WriteHandler<?,?>>, WriteHandlerMap> newVerboseHandlerCache = new Cache<Map<Class, WriteHandler<?,?>>, WriteHandlerMap>();
+
+
     public static Map<Class, WriteHandler<?,?>> defaultHandlers() {
 
         Map<Class, WriteHandler<?,?>> handlers = new HashMap<Class, WriteHandler<?,?>>();
 
         WriteHandler integerHandler = new WriteHandlers.IntegerWriteHandler();
         WriteHandler uriHandler = new WriteHandlers.ToStringWriteHandler("r");
-        WriteHandler arrayHandler = new WriteHandlers.ArrayWriteHandler();
 
         handlers.put(Boolean.class, new WriteHandlers.BooleanWriteHandler());
         handlers.put(null, new WriteHandlers.NullWriteHandler());
@@ -38,7 +41,7 @@ public class WriterFactory {
         handlers.put(Map.class, new WriteHandlers.MapWriteHandler());
         handlers.put(BigDecimal.class, new WriteHandlers.ToStringWriteHandler("f"));
         handlers.put(Character.class, new WriteHandlers.ToStringWriteHandler("c"));
-        handlers.put(Keyword.class, new WriteHandlers.ToStringWriteHandler(":"));
+        handlers.put(Keyword.class, new WriteHandlers.KeywordWriteHandler());
         handlers.put(Symbol.class, new WriteHandlers.ToStringWriteHandler("$"));
         handlers.put(byte[].class, new WriteHandlers.BinaryWriteHandler());
         handlers.put(UUID.class, new WriteHandlers.UUIDWriteHandler());
@@ -64,57 +67,63 @@ public class WriterFactory {
         return handlers;
     }
 
-    private static Map<Class, WriteHandler<?,?>> handlers(Map<Class, WriteHandler<?,?>> customHandlers) {
-        Map<Class, WriteHandler<?,?>> handlers = defaultHandlers();
-        if (customHandlers != null) {
-            handlers.putAll(customHandlers);
+    private static WriteHandlerMap handlerMap(Map<Class, WriteHandler<?, ?>> customHandlers) {
+        if (customHandlers instanceof WriteHandlerMap)
+            return (WriteHandlerMap) customHandlers;
+
+        if (newHandlerCache.containsKey(customHandlers)) {
+            return newHandlerCache.get(customHandlers);
         }
-        return handlers;
+
+        synchronized (WriterFactory.class) {
+            if (newHandlerCache.containsKey(customHandlers)) {
+                return newHandlerCache.get(customHandlers);
+            } else {
+                WriteHandlerMap writeHandlerMap = new WriteHandlerMap(customHandlers);
+                newHandlerCache.put(customHandlers, writeHandlerMap);
+                return writeHandlerMap;
+            }
+        }
     }
 
-    private static void setSubHandler(Map<Class, WriteHandler<?,?>> handlers, AbstractEmitter abstractEmitter) {
-        Iterator<WriteHandler<?,?>> i = handlers.values().iterator();
-        while(i.hasNext()) {
-            WriteHandler h = i.next();
-            if(h instanceof AbstractEmitterAware)
-                ((AbstractEmitterAware)h).setEmitter(abstractEmitter);
+    private static WriteHandlerMap verboseHandlerMap(Map<Class, WriteHandler<?, ?>> customHandlers) {
+        if (customHandlers instanceof WriteHandlerMap) {
+            return ((WriteHandlerMap) customHandlers).verboseWriteHandlerMap();
         }
-    }
 
-    private static Map<Class, WriteHandler<?,?>> getVerboseHandlers(Map<Class, WriteHandler<?,?>> handlers) {
-        Map<Class, WriteHandler<?,?>> verboseHandlers = new HashMap<Class, WriteHandler<?, ?>>(handlers.size());
-        for(Map.Entry<Class, WriteHandler<?,?>> entry : handlers.entrySet()) {
-            WriteHandler<?,?> verboseHandler = entry.getValue().getVerboseHandler();
-            verboseHandlers.put(
-                    entry.getKey(),
-                    (verboseHandler == null) ? entry.getValue() : verboseHandler);
+        if (newVerboseHandlerCache.containsKey(customHandlers)) {
+            return newVerboseHandlerCache.get(customHandlers);
         }
-        return verboseHandlers;
+
+        synchronized (WriterFactory.class) {
+            if (newVerboseHandlerCache.containsKey(customHandlers)) {
+                return newVerboseHandlerCache.get(customHandlers);
+            } else {
+                WriteHandlerMap verboseHandlerMap = handlerMap(customHandlers).verboseWriteHandlerMap();
+                newVerboseHandlerCache.put(customHandlers, verboseHandlerMap);
+                return verboseHandlerMap;
+            }
+        }
     }
 
     public static <T> Writer<T> getJsonInstance(final OutputStream out, Map<Class, WriteHandler<?,?>> customHandlers, boolean verboseMode) throws IOException {
 
-        JsonFactory jf = new JsonFactory();
-        JsonGenerator gen = jf.createGenerator(out);
-
-        Map<Class, WriteHandler<?,?>> handlers = handlers(customHandlers);
-
+        JsonGenerator gen = new JsonFactory().createGenerator(out);
         final JsonEmitter emitter;
+
         if (verboseMode) {
-            emitter = new JsonVerboseEmitter(gen, getVerboseHandlers(handlers));
+            emitter = new JsonVerboseEmitter(gen, verboseHandlerMap(customHandlers));
         } else {
-            emitter = new JsonEmitter(gen, handlers);
+            emitter = new JsonEmitter(gen, handlerMap(customHandlers));
         }
 
-        setSubHandler(handlers, emitter);
-
-        final WriteCache wc = new WriteCache(!verboseMode);
+        final WriteCache writeCache = new WriteCache(!verboseMode);
 
         return new Writer<T>() {
             @Override
             public void write(T o) {
                 try {
-                    emitter.emit(o, false, wc.init());
+                    emitter.emit(o, false, writeCache.init());
                     out.flush();
                 } catch (Throwable e) {
                     throw new RuntimeException(e);
@@ -125,22 +134,17 @@ public class WriterFactory {
 
     public static <T> Writer<T> getMsgpackInstance(final OutputStream out, Map<Class, WriteHandler<?,?>> customHandlers) throws IOException {
 
-        MessagePack mp = new MessagePack();
-        Packer p = mp.createPacker(out);
+        Packer packer = new MessagePack().createPacker(out);
 
-        Map<Class, WriteHandler<?,?>> handlers = handlers(customHandlers);
+        final MsgpackEmitter emitter = new MsgpackEmitter(packer, handlerMap(customHandlers));
 
-        final MsgpackEmitter emitter = new MsgpackEmitter(p, handlers);
-
-        setSubHandler(handlers, emitter);
-
-	    final WriteCache wc = new WriteCache(true);
+        final WriteCache writeCache = new WriteCache(true);
 
         return new Writer<T>() {
             @Override
             public void write(T o) {
                 try {
-                    emitter.emit(o, false, wc.init());
+                    emitter.emit(o, false, writeCache.init());
                     out.flush();
                 } catch (Throwable e) {
                     throw new RuntimeException(e);
